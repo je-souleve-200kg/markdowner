@@ -6,6 +6,11 @@ compatibility_flags = [ "nodejs_compat"]
 
 browser = { binding = "MYBROWSER" }
 
+# Binding to a Durable Object
+[[durable_objects.bindings]]
+name = "BROWSER"
+class_name = "Browser"
+
 [[kv_namespaces]]
 binding= "MD_CACHE"
 id = "b587d4c164f34e2e8d89a29e2c8372b7"

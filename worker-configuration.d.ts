@@ -2,5 +2,6 @@
 
 interface Env {
 	MD_CACHE: KVNamespace;
+	BROWSER: DurableObjectNamespace<import("./src/index").Browser>;
 	MYBROWSER: Fetcher;
 }
