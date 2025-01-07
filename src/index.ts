@@ -52,16 +52,9 @@ export class Browser {
 		const { searchParams } = new URL(request.url);
 		const url = searchParams.get('url');
 
-		//if there's a browser session open, re-use it
-		if (!this.browser || !this.browser.isConnected()) {
-			console.log('Browser DO: Starting new instance');
-			try {
-				this.browser = await puppeteer.launch(this.env.MYBROWSER);
-			} catch (e) {
-				console.log(`Browser DO: Could not start browser instance. Error: ${e}`);
-			}
+		if (!(await this.ensureBrowser())) {
+			return new Response('Could not start browser instance', { status: 500 });
 		}
-
 		// Reset keptAlive after each call to the DO
 		this.keptAliveInSeconds = 0;
 
@@ -86,6 +79,35 @@ export class Browser {
 		return new Response(title, {
 			headers: { 'content-type': 'text/html;charset=UTF-8' },
 		});
+	}
+
+	async ensureBrowser() {
+		let retries = 3;
+		while (retries) {
+			if (!this.browser || !this.browser.isConnected()) {
+				try {
+					this.browser = await puppeteer.launch(this.env.MYBROWSER);
+					return true;
+				} catch (e) {
+					console.error(`Browser DO: Could not start browser instance. Error: ${e}`);
+					retries--;
+					if (!retries) {
+						return false;
+					}
+
+					const sessions = await puppeteer.sessions(this.env.MYBROWSER);
+
+					for (const session of sessions) {
+						const b = await puppeteer.connect(this.env.MYBROWSER, session.sessionId);
+						await b.close();
+					}
+
+					console.log(`Retrying to start browser instance. Retries left: ${retries}`);
+				}
+			} else {
+				return true;
+			}
+		}
 	}
 
 	async alarm() {
