@@ -11,7 +11,14 @@ browser = { binding = "MYBROWSER" }
 name = "BROWSER"
 class_name = "Browser"
 
+[[migrations]]
+tag = "v1" # Should be unique for each entry
+new_classes = ["Browser"] # Array of new classes
+
 [[kv_namespaces]]
 binding= "MD_CACHE"
 id = "b587d4c164f34e2e8d89a29e2c8372b7"
 preview_id = "81ac09211c85406b8738a540d9c168a1"
+
+[ai]
+binding = "AI"

@@ -1,34 +1,25 @@
 import puppeteer from '@cloudflare/puppeteer';
+import type { Browser as PuppeteerBrowser } from '@cloudflare/puppeteer';
+import { urlToMarkdown } from './processor';
+
+const TEN_SECONDS = 10 * 1000;
 
 export default {
 	async fetch(request, env): Promise<Response> {
+		console.log(env.BACKEND_SECURITY_TOKEN);
+		if (!(env.BACKEND_SECURITY_TOKEN === request.headers.get('Authorization'))) {
+			return new Response('Unauthorized', { status: 401 });
+		}
+
 		const id = env.BROWSER.idFromName('browser');
 		const obj = env.BROWSER.get(id);
-		const resp = await obj.fetch(request.url);
-		return resp;
-		// const { searchParams } = new URL(request.url);
-		// let url = searchParams.get('url');
 
-		// if (url) {
-		// 	url = new URL(url).toString(); // normalize
-		// 	let title = await env.MD_CACHE.get(url);
-
-		// 	if (title === null) {
-		// 		const browser = await puppeteer.launch(env.MYBROWSER);
-		// 		const page = await browser.newPage();
-		// 		await page.goto(url);
-		// 		title = await page.title();
-		// 		await env.MD_CACHE.put(url, title, {
-		// 			expirationTtl: 60 * 60 * 24,
-		// 		});
-		// 		await browser.close();
-		// 	}
-
-		// 	return new Response(title, {
-		// 		headers: { 'content-type': 'text/html;charset=UTF-8' },
-		// 	});
-		// }
-		// return new Response('Please add an ?url=https://example.com/ parameter');
+		try {
+			return await obj.fetch(request);
+			// biome-ignore lint/suspicious/noExplicitAny: <explanation>
+		} catch (e: any) {
+			return new Response(e.message || e.toString(), { status: 500 });
+		}
 	},
 } satisfies ExportedHandler<Env>;
 
@@ -39,7 +30,7 @@ export class Browser {
 	env: Env;
 	keptAliveInSeconds: number;
 	storage: DurableObjectStorage;
-	browser: puppeteer.Browser | undefined;
+	browser: PuppeteerBrowser | undefined;
 
 	constructor(state: DurableObjectState, env: Env) {
 		this.state = state;
@@ -55,28 +46,51 @@ export class Browser {
 		if (!(await this.ensureBrowser())) {
 			return new Response('Could not start browser instance', { status: 500 });
 		}
+
+		if (!url) {
+			return new Response('Please add an ?url=https://example.com/ parameter', { status: 400 });
+		}
+
+		if (!this.isValidUrl(url)) {
+			return new Response('Invalid URL provided, should be a full URL starting with http:// or https://', { status: 400 });
+		}
+
 		// Reset keptAlive after each call to the DO
 		this.keptAliveInSeconds = 0;
 
-		const page = await this.browser.newPage();
-		await page.goto(url);
-		const title = await page.title();
+		// // set the first alarm to keep DO alive
+		const currentAlarm = await this.storage.getAlarm();
+		if (currentAlarm == null) {
+			console.log('Browser DO: setting alarm');
+			await this.storage.setAlarm(Date.now() + TEN_SECONDS);
+		}
 
-		// Close tab when there is no more work to be done on the page
-		await page.close();
+		return await this.processSinglePage(url);
+	}
+
+	async processSinglePage(url: string): Promise<Response> {
+		this.keptAliveInSeconds = 0;
+
+		await this.ensureBrowser();
+
+		if (!this.browser) {
+			return new Response('Browser not available', { status: 500 });
+		}
+
+		const id = url;
+		const cached = await this.env.MD_CACHE.get(id);
+
+		const markdown = cached ?? (await urlToMarkdown(this.browser, url));
+
+		if (!cached) {
+			console.log(`Returning cached markdown for ${url}`);
+			await this.env.MD_CACHE.put(id, markdown, { expirationTtl: 60 });
+		}
 
 		// Reset keptAlive after performing tasks to the DO.
 		this.keptAliveInSeconds = 0;
 
-		// set the first alarm to keep DO alive
-		const currentAlarm = await this.storage.getAlarm();
-		if (currentAlarm == null) {
-			console.log('Browser DO: setting alarm');
-			const TEN_SECONDS = 10 * 1000;
-			await this.storage.setAlarm(Date.now() + TEN_SECONDS);
-		}
-
-		return new Response(title, {
+		return new Response(markdown, {
 			headers: { 'content-type': 'text/html;charset=UTF-8' },
 		});
 	}
@@ -110,13 +124,17 @@ export class Browser {
 		}
 	}
 
+	isValidUrl(url: string): boolean {
+		return /^(http|https):\/\/[^ "]+$/.test(url);
+	}
+
 	async alarm() {
 		this.keptAliveInSeconds += 10;
 
 		// Extend browser DO life
 		if (this.keptAliveInSeconds < KEEP_BROWSER_ALIVE_IN_SECONDS) {
 			console.log(`Browser DO: has been kept alive for ${this.keptAliveInSeconds} seconds. Extending lifespan.`);
-			await this.storage.setAlarm(Date.now() + 10 * 1000);
+			await this.storage.setAlarm(Date.now() + TEN_SECONDS);
 			// You could ensure the ws connection is kept alive by requesting something
 			// or just let it close automatically when there  is no work to be done
 			// for example, `await this.browser.version()`

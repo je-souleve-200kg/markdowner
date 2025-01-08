@@ -2,6 +2,8 @@
 
 interface Env {
 	MD_CACHE: KVNamespace;
-	BROWSER: DurableObjectNamespace<import("./src/index").Browser>;
+	BROWSER: DurableObjectNamespace<import('./src/index').Browser>;
 	MYBROWSER: Fetcher;
+	AI: Ai;
+	BACKEND_SECURITY_TOKEN: string;
 }
