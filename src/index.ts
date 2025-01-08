@@ -84,7 +84,7 @@ export class Browser {
 
 		if (!cached) {
 			console.log(`Returning cached markdown for ${url}`);
-			await this.env.MD_CACHE.put(id, markdown, { expirationTtl: 60 });
+			await this.env.MD_CACHE.put(id, markdown, { expirationTtl: 3600 });
 		}
 
 		// Reset keptAlive after performing tasks to the DO.
